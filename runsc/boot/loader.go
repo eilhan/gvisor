@@ -299,6 +299,7 @@ func New(args Args) (*Loader, error) {
 		RootIPCNamespace:            kernel.NewIPCNamespace(creds.UserNamespace),
 		RootAbstractSocketNamespace: kernel.NewAbstractSocketNamespace(),
 		PIDNamespace:                kernel.NewRootPIDNamespace(creds.UserNamespace),
+		KcovAvailable:               args.Conf.Kcov,
 	}); err != nil {
 		return nil, fmt.Errorf("initializing kernel: %v", err)
 	}

@@ -49,6 +49,7 @@ var (
 	overlay    = flag.Bool("overlay", false, "wrap filesystem mounts with writable tmpfs overlay")
 	vfs2       = flag.Bool("vfs2", false, "enable VFS2")
 	fuse       = flag.Bool("fuse", false, "enable FUSE")
+	kcov       = flag.Bool("kcov", false, "enable kcov")
 	parallel   = flag.Bool("parallel", false, "run tests in parallel")
 	runscPath  = flag.String("runsc", "", "path to runsc binary")
 
@@ -160,6 +161,9 @@ func runRunsc(tc gtest.TestCase, spec *specs.Spec) error {
 		args = append(args, "-vfs2")
 		if *fuse {
 			args = append(args, "-fuse")
+		}
+		if *kcov {
+			args = append(args, "-kcov")
 		}
 	}
 	if *debug {

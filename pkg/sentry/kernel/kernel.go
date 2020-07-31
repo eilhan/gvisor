@@ -127,6 +127,7 @@ type Kernel struct {
 	rootUTSNamespace            *UTSNamespace
 	rootIPCNamespace            *IPCNamespace
 	rootAbstractSocketNamespace *AbstractSocketNamespace
+	kcovAvailable               bool
 
 	// futexes is the "root" futex.Manager, from which all others are forked.
 	// This is necessary to ensure that shared futexes are coherent across all
@@ -248,7 +249,7 @@ type Kernel struct {
 	// SpecialOpts contains special kernel options.
 	SpecialOpts
 
-	// VFS keeps the filesystem state used across the kernel.
+	// vfs keeps the filesystem state used across the kernel.
 	vfs vfs.VirtualFilesystem
 
 	// hostMount is the Mount used for file descriptors that were imported
@@ -321,6 +322,10 @@ type InitKernelArgs struct {
 
 	// PIDNamespace is the root PID namespace.
 	PIDNamespace *PIDNamespace
+
+	// KcovAvailable is true if code coverage should be exposed to userspace
+	// through the kcov interface.
+	KcovAvailable bool
 }
 
 // Init initialize the Kernel with no tasks.
@@ -374,6 +379,7 @@ func (k *Kernel) Init(args InitKernelArgs) error {
 	k.monotonicClock = &timekeeperClock{tk: args.Timekeeper, c: sentrytime.Monotonic}
 	k.futexes = futex.NewManager()
 	k.netlinkPorts = port.New()
+	k.kcovAvailable = args.KcovAvailable
 
 	if VFS2Enabled {
 		ctx := k.SupervisorContext()
@@ -1696,4 +1702,10 @@ func (k *Kernel) ShmMount() *vfs.Mount {
 // SocketMount returns the sockfs mount.
 func (k *Kernel) SocketMount() *vfs.Mount {
 	return k.socketMount
+}
+
+// KcovAvailable returns whether code coverage for the sandbox can be accessed
+// using kcov.
+func (k *Kernel) KcovAvailable() bool {
+	return k.kcovAvailable
 }

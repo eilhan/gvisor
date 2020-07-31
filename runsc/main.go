@@ -89,6 +89,7 @@ var (
 	cpuNumFromQuota    = flag.Bool("cpu-num-from-quota", false, "set cpu number to cpu quota (least integer greater or equal to quota value, but not less than 2)")
 	vfs2Enabled        = flag.Bool("vfs2", false, "TEST ONLY; use while VFSv2 is landing. This uses the new experimental VFS layer.")
 	fuseEnabled        = flag.Bool("fuse", false, "TEST ONLY; use while FUSE in VFSv2 is landing. This allows the use of the new experimental FUSE filesystem.")
+	kcovEnabled        = flag.Bool("kcov", false, "TEST ONLY; exposes coverage information to userspace through /sys/kernel/debug/kcov.")
 
 	// Test flags, not to be used outside tests, ever.
 	testOnlyAllowRunAsCurrentUserWithoutChroot = flag.Bool("TESTONLY-unsafe-nonroot", false, "TEST ONLY; do not ever use! This skips many security measures that isolate the host from the sandbox.")
@@ -244,6 +245,7 @@ func main() {
 		CPUNumFromQuota:    *cpuNumFromQuota,
 		VFS2:               *vfs2Enabled,
 		FUSE:               *fuseEnabled,
+		Kcov:               *kcovEnabled,
 		QDisc:              queueingDiscipline,
 		TestOnlyAllowRunAsCurrentUserWithoutChroot: *testOnlyAllowRunAsCurrentUserWithoutChroot,
 		TestOnlyTestNameEnv:                        *testOnlyTestNameEnv,

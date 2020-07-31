@@ -59,6 +59,16 @@ func (fsType FilesystemType) GetFilesystem(ctx context.Context, vfsObj *vfs.Virt
 	}
 	fs.VFSFilesystem().Init(vfsObj, &fsType, fs)
 
+	k := kernel.KernelFromContext(ctx)
+	var kernelDirContents map[string]*kernfs.Dentry
+	if k.KcovAvailable() {
+		kernelDirContents = map[string]*kernfs.Dentry{
+			"debug": fs.newDir(creds, linux.FileMode(0700), map[string]*kernfs.Dentry{
+				"kcov": fs.newKcovFile(ctx, creds),
+			}),
+		}
+	}
+
 	root := fs.newDir(creds, defaultSysDirMode, map[string]*kernfs.Dentry{
 		"block": fs.newDir(creds, defaultSysDirMode, nil),
 		"bus":   fs.newDir(creds, defaultSysDirMode, nil),
@@ -73,7 +83,7 @@ func (fsType FilesystemType) GetFilesystem(ctx context.Context, vfsObj *vfs.Virt
 		}),
 		"firmware": fs.newDir(creds, defaultSysDirMode, nil),
 		"fs":       fs.newDir(creds, defaultSysDirMode, nil),
-		"kernel":   fs.newDir(creds, defaultSysDirMode, nil),
+		"kernel":   fs.newDir(creds, defaultSysDirMode, kernelDirContents),
 		"module":   fs.newDir(creds, defaultSysDirMode, nil),
 		"power":    fs.newDir(creds, defaultSysDirMode, nil),
 	})
