@@ -34,6 +34,9 @@ const (
 	hopLimit             = 7
 	v6SrcAddr            = 8
 	v6DstAddr            = v6SrcAddr + IPv6AddressSize
+
+	// IPv6FixedHeaderSize is where extension headers would start.
+	IPv6FixedHeaderSize = v6DstAddr + IPv6AddressSize
 )
 
 // IPv6Fields contains the fields of an IPv6 packet. It is used to describe the

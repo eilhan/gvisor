@@ -150,11 +150,17 @@ type TransportProtocol interface {
 	// protocol but that don't match any existing endpoint. For example,
 	// it is targeted at a port that have no listeners.
 	//
-	// The return value indicates whether the packet was well-formed (for
-	// stats purposes only).
+	// Return values:
+	// 'wellFormed' indicates whether the packet was well formed.
+	// If false the network protocol should report it in the stats and
+	// may decide to not take notice of the second bool.
+	//
+	// 'handled' says if the protocol handled it or if the
+	// default error handler should take it. If this value is false for
+	// IP versions 4 or 6, the default handler will try send an ICMP packet.
 	//
 	// HandleUnknownDestinationPacket takes ownership of pkt.
-	HandleUnknownDestinationPacket(r *Route, id TransportEndpointID, pkt *PacketBuffer) bool
+	HandleUnknownDestinationPacket(r *Route, id TransportEndpointID, pkt *PacketBuffer) (wellFormed bool, handled bool)
 
 	// SetOption allows enabling/disabling protocol specific features.
 	// SetOption returns an error if the option is not supported or the
@@ -330,6 +336,14 @@ type NetworkProtocol interface {
 	//   does not encapsulate anything).
 	// - Whether pkt.Data was large enough to parse and set pkt.NetworkHeader.
 	Parse(pkt *PacketBuffer) (proto tcpip.TransportProtocolNumber, hasTransportHdr bool, ok bool)
+
+	// ReturnError attempts to send a suitable error message to the sender.
+	// Our received packet is faulty for some reason so we will try send it back
+	// along with a hint as to what was wrong. We assume that the route we have
+	// is complete and that all the information we need about the packet is in the
+	// PacketBuffer. This function may be called from anywhere in the stack
+	// where a received pkt and associated route are available.
+	ReturnError(r *Route, reason int, reasonCode int, pkt *PacketBuffer) bool
 }
 
 // NetworkDispatcher contains the methods used by the network stack to deliver

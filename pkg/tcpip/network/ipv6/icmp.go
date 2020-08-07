@@ -571,3 +571,102 @@ func (*protocol) ResolveStaticAddress(addr tcpip.Address) (tcpip.LinkAddress, bo
 	}
 	return tcpip.LinkAddress([]byte(nil)), false
 }
+
+// Map protocol agnostic error values to IPv6 equivalents
+type icmpv6Reason struct {
+	typ  header.ICMPv6Type
+	code header.ICMPv6Code
+}
+
+var icmp6ErrorTable = [...]icmpv6Reason{
+	tcpip.ICMPReasonTimeExceeded: {
+		typ:  header.ICMPv6TimeExceeded,
+		code: header.ICMPv6UnusedCode},
+	tcpip.ICMPReasonParamProblem: {
+		typ:  header.ICMPv6ParamProblem,
+		code: header.ICMPv6ErroneousHeader},
+	tcpip.ICMPReasonDstUnreachable: {
+		typ:  header.ICMPv6DstUnreachable,
+		code: header.ICMPv6UnusedCode},
+	tcpip.ICMPReasonPortUnreachable: {
+		typ:  header.ICMPv6DstUnreachable,
+		code: header.ICMPv6PortUnreachable},
+	tcpip.ICMPReasonProtoUnreachable: {
+		typ:  header.ICMPv6ParamProblem,
+		code: header.ICMPv6UnknownHeader},
+}
+
+// ReturnError takes a protocol independent error and will send the appropriate
+// protocol specific message to the sender of the packet supplied in pkt.
+// This may be called from transport protocols or from within the Network stack.
+// It Assumes that pkt has a network header and a transport header and that the
+// route is available. Parameter 'aux' holds an error specific value.
+func (p *protocol) ReturnError(r *stack.Route, reason int, aux int, pkt *stack.PacketBuffer) bool {
+	if reason >= tcpip.ICMPReasonTableSize {
+		return false
+	}
+	return SendICMPError(r,
+		icmp6ErrorTable[reason].typ,
+		icmp6ErrorTable[reason].code,
+		aux, pkt)
+}
+
+// SendICMPError sends an ICMP error report back to the remote device that sent
+// the problematic packet. It will incorporate as much of that packet as
+// possible as well as any error metadata as is available.
+// SendICMPError can only be called from within code that is knowledgeable about
+// IPv6 ICMP. For Protocol agnostic code, call protocol.ReturnError above.
+func SendICMPError(r *stack.Route, eType header.ICMPv6Type, eCode header.ICMPv6Code, aux int, pkt *stack.PacketBuffer) bool {
+	// Only send ICMP error if the address is not a multicast v6
+	// address and the source is not the unspecified address.
+	//
+	// See: point e) in https://tools.ietf.org/html/rfc4443#section-2.4
+	// TODO(jrelis) There is an exception to this rule. see point e.3
+	if header.IsV6MulticastAddress(r.LocalAddress) || r.RemoteAddress == header.IPv6Any {
+		return true
+	}
+
+	if !r.Stack().AllowICMPMessage() {
+		r.Stack().Stats().ICMP.V6PacketsSent.RateLimited.Increment()
+		return true
+	}
+
+	// As per RFC 4443 section 2.4
+	//
+	//    (c) Every ICMPv6 error message (type < 128) MUST include
+	//    as much of the IPv6 offending (invoking) packet (the
+	//    packet that caused the error) as possible without making
+	//    the error message packet exceed the minimum IPv6 MTU
+	//    [IPv6].
+	mtu := int(r.MTU())
+	if mtu > header.IPv6MinimumMTU {
+		mtu = header.IPv6MinimumMTU
+	}
+	headerLen := int(r.MaxHeaderLength()) + header.ICMPv6DstUnreachableMinimumSize
+	available := int(mtu) - headerLen
+	if available < header.IPv6MinimumSize {
+		return true
+	}
+	payloadLen := len(pkt.NetworkHeader) + len(pkt.TransportHeader) + pkt.Data.Size()
+	if payloadLen > available {
+		payloadLen = available
+	}
+	payload := buffer.NewVectorisedView(len(pkt.NetworkHeader)+len(pkt.TransportHeader), []buffer.View{pkt.NetworkHeader, pkt.TransportHeader})
+	payload.Append(pkt.Data)
+	payload.CapLength(payloadLen)
+
+	hdr := buffer.NewPrependable(headerLen)
+	newpkt := header.ICMPv6(hdr.Prepend(header.ICMPv6DstUnreachableMinimumSize))
+	newpkt.SetType(eType)
+	newpkt.SetCode(eCode)
+	if eType == header.ICMPv6ParamProblem {
+		newpkt.SetPointer(uint32(aux))
+	}
+	newpkt.SetChecksum(header.ICMPv6Checksum(newpkt, r.LocalAddress, r.RemoteAddress, payload))
+	r.WritePacket(nil /* gso */, stack.NetworkHeaderParams{Protocol: header.ICMPv6ProtocolNumber, TTL: r.DefaultTTL(), TOS: stack.DefaultTOS}, &stack.PacketBuffer{
+		Header:          hdr,
+		TransportHeader: buffer.View(newpkt),
+		Data:            payload,
+	})
+	return true
+}

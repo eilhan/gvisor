@@ -39,20 +39,27 @@ const (
 	icmpv4ChecksumOffset = 2
 
 	// icmpv4MTUOffset is the offset of the MTU field
-	// in a ICMPv4FragmentationNeeded message.
+	// in an ICMPv4FragmentationNeeded message.
 	icmpv4MTUOffset = 6
 
 	// icmpv4IdentOffset is the offset of the ident field
-	// in a ICMPv4EchoRequest/Reply message.
+	// in an ICMPv4EchoRequest/Reply message.
 	icmpv4IdentOffset = 4
 
+	// icmpv4PointerOffset is the offset of the pointer field
+	// in an ICMPv4ParamProblem message.
+	icmpv4PointerOffset = 4
+
 	// icmpv4SequenceOffset is the offset of the sequence field
-	// in a ICMPv4EchoRequest/Reply message.
+	// in an ICMPv4EchoRequest/Reply message.
 	icmpv4SequenceOffset = 6
 )
 
 // ICMPv4Type is the ICMP type field described in RFC 792.
 type ICMPv4Type byte
+
+// ICMPv4Code is the ICMP code field described in RFC 792.
+type ICMPv4Code byte
 
 // Typical values of ICMPv4Type defined in RFC 792.
 const (
@@ -69,13 +76,17 @@ const (
 	ICMPv4InfoReply      ICMPv4Type = 16
 )
 
-// Values for ICMP code as defined in RFC 792.
+// ICMP codes for ICMPv4 Destination Unreachable messages as defined in RFC 792.
 const (
-	ICMPv4TTLExceeded         = 0
-	ICMPv4HostUnreachable     = 1
-	ICMPv4PortUnreachable     = 3
-	ICMPv4FragmentationNeeded = 4
+	ICMPv4TTLExceeded         ICMPv4Code = 0
+	ICMPv4HostUnreachable     ICMPv4Code = 1
+	ICMPv4ProtoUnreachable    ICMPv4Code = 2
+	ICMPv4PortUnreachable     ICMPv4Code = 3
+	ICMPv4FragmentationNeeded ICMPv4Code = 4
 )
+
+// ICMPv4UnusedCode is a code to use in ICMP messages where no code is needed.
+const ICMPv4UnusedCode ICMPv4Code = 0
 
 // Type is the ICMP type field.
 func (b ICMPv4) Type() ICMPv4Type { return ICMPv4Type(b[0]) }
@@ -84,10 +95,13 @@ func (b ICMPv4) Type() ICMPv4Type { return ICMPv4Type(b[0]) }
 func (b ICMPv4) SetType(t ICMPv4Type) { b[0] = byte(t) }
 
 // Code is the ICMP code field. Its meaning depends on the value of Type.
-func (b ICMPv4) Code() byte { return b[1] }
+func (b ICMPv4) Code() ICMPv4Code { return ICMPv4Code(b[1]) }
 
 // SetCode sets the ICMP code field.
-func (b ICMPv4) SetCode(c byte) { b[1] = c }
+func (b ICMPv4) SetCode(c ICMPv4Code) { b[1] = byte(c) }
+
+// SetPointer sets the pointer field in a Parameter error packet.
+func (b ICMPv4) SetPointer(c byte) { b[icmpv4PointerOffset] = c }
 
 // Checksum is the ICMP checksum field.
 func (b ICMPv4) Checksum() uint16 {
