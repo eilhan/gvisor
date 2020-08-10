@@ -31,6 +31,7 @@ import (
 // +stateify savable
 type segment struct {
 	segmentEntry
+	rackSegmentEntry
 	refCnt int32
 	id     stack.TransportEndpointID `state:"manual"`
 	route  stack.Route               `state:"manual"`
@@ -60,6 +61,16 @@ type segment struct {
 	xmitTime  time.Time `state:".(unixTime)"`
 	xmitCount uint32
 }
+
+// segmentMapper is for the writeList.
+type segmentMapper struct{}
+
+func (segmentMapper) linkerFor(seg *segment) *segmentEntry { return &seg.segmentEntry }
+
+// rackSegmentMapper is for the rcList.
+type rackSegmentMapper struct{}
+
+func (rackSegmentMapper) linkerFor(seg *segment) *rackSegmentEntry { return &seg.rackSegmentEntry }
 
 func newSegment(r *stack.Route, id stack.TransportEndpointID, pkt *stack.PacketBuffer) *segment {
 	s := &segment{
