@@ -169,6 +169,8 @@ func (a *attachPoint) makeQID(stat syscall.Stat_t) p9.QID {
 // entire file up when it's opened in write mode, and would perform badly when
 // multiple files are only being opened for read (esp. startup).
 type localFile struct {
+	p9.DisallowClientCalls
+
 	// attachPoint is the attachPoint that serves this localFile.
 	attachPoint *attachPoint
 
