@@ -151,6 +151,10 @@ func (*fwdTestNetworkProtocol) Parse(pkt *PacketBuffer) (tcpip.TransportProtocol
 	return tcpip.TransportProtocolNumber(netHeader[protocolNumberOffset]), true, true
 }
 
+func (*fwdTestNetworkProtocol) ReturnError(*Route, tcpip.ICMPReason, *PacketBuffer) bool {
+	return true
+}
+
 func (f *fwdTestNetworkProtocol) NewEndpoint(nicID tcpip.NICID, addrWithPrefix tcpip.AddressWithPrefix, linkAddrCache LinkAddressCache, dispatcher TransportDispatcher, ep LinkEndpoint, _ *Stack) (NetworkEndpoint, *tcpip.Error) {
 	return &fwdTestNetworkEndpoint{
 		nicID:      nicID,

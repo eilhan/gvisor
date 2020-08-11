@@ -1270,9 +1270,9 @@ func (n *NIC) DeliverNetworkPacket(remote, local tcpip.LinkAddress, protocol tcp
 		local = n.linkEP.LinkAddress()
 	}
 
-	// Are any packet sockets listening for this network protocol?
+	// Are any Packet sockets listening for this network protocol?
 	packetEPs := n.mu.packetEPs[protocol]
-	// Add any other packet sockets that maybe listening for all protocols.
+	// Add any other Packet sockets that maybe listening for all protocols.
 	packetEPs = append(packetEPs, n.mu.packetEPs[header.EthernetProtocolAll]...)
 	n.mu.RUnlock()
 	for _, ep := range packetEPs {
@@ -1428,6 +1428,12 @@ func (n *NIC) DeliverTransportPacket(r *Route, protocol tcpip.TransportProtocolN
 	state, ok := n.stack.transportProtocols[protocol]
 	if !ok {
 		n.stack.stats.UnknownProtocolRcvdPackets.Increment()
+		// As per RFC: 1122 Section 3.2.2.1 A host SHOULD generate Destination
+		//   Unreachable messages with code:
+		//     2 (Protocol Unreachable), when the designated transport protocol
+		//     is not supported
+		np := n.stack.networkProtocols[r.NetProto]
+		np.ReturnError(r, tcpip.ICMPReasonProtoUnreachable{}, pkt)
 		return
 	}
 
@@ -1481,9 +1487,23 @@ func (n *NIC) DeliverTransportPacket(r *Route, protocol tcpip.TransportProtocolN
 	}
 
 	// We could not find an appropriate destination for this packet, so
-	// deliver it to the global handler.
-	if !transProto.HandleUnknownDestinationPacket(r, id, pkt) {
+	// deliver it to the protocol specific error handler to see if it wants to
+	// handle it.
+	wellFormed, handled := transProto.HandleUnknownDestinationPacket(r, id, pkt)
+	if !wellFormed {
 		n.stack.stats.MalformedRcvdPackets.Increment()
+		return
+	}
+	if !handled {
+		// As per RFC: 1122 Section 3.2.2.1 A host SHOULD generate Destination
+		//   Unreachable messages with code:
+		//     3 (Port Unreachable), when the designated transport protocol
+		//     (e.g., UDP) is unable to demultiplex the datagram but has no
+		//     protocol mechanism to inform the sender.
+		np := n.stack.networkProtocols[r.NetProto]
+		np.ReturnError(r, tcpip.ICMPReasonPortUnreachable{}, pkt)
+		// we really don't have anything to do if we can't send an ICMP packet
+		// so ignore error return for now.
 	}
 }
 

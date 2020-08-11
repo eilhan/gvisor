@@ -1739,3 +1739,57 @@ func DeleteDanglingEndpoint(e Endpoint) {
 // AsyncLoading is the global barrier for asynchronous endpoint loading
 // activities.
 var AsyncLoading sync.WaitGroup
+
+// ICMPReason exports supported reasons to create an ICMP error packet.
+// This does not need to include all ICMP types, just those we need to use in
+// a network protocol agnostic way. Used for both IP versions 4 and 6.
+// New entries here need to be added to the tables in the Network protocol icmp
+// code.
+type ICMPReason interface {
+	// Private interface method so nothing outside of this package may implement it.
+	isICMP()
+}
+
+// ICMPReasonTimeExceeded tells the sender that the path took too amny hops
+// and the TTL/hop-count field reached 0.
+type ICMPReasonTimeExceeded struct{}
+
+// isICMP is a dummy method to give a signature to the types that we want
+// to make available.
+func (ICMPReasonTimeExceeded) isICMP() {}
+
+// ICMPParameterProblem tells the packet originator that some fields were not
+// created correctly or were corrupted in transit.
+type ICMPParameterProblem struct{ pointer uint32 }
+
+// isICMP is a dummy method to give a signature to the types that we want
+// to make available.
+func (ICMPParameterProblem) isICMP() {}
+
+// Pointer reads back the pointer value that the creator of the object placed
+// in it.
+func (e ICMPParameterProblem) Pointer() uint32 { return e.pointer }
+
+// ICMPReasonDstUnreachable says that the sender can not send forward the
+// packet to th final destination.
+type ICMPReasonDstUnreachable struct{}
+
+// isICMP is a dummy method to give a signature to the types that we want
+// to make available.
+func (ICMPReasonDstUnreachable) isICMP() {}
+
+// ICMPReasonPortUnreachable tells the sender that the port requested is not
+// opened on the target.
+type ICMPReasonPortUnreachable struct{}
+
+// isICMP is a dummy method to give a signature to the types that we want
+// to make available.
+func (ICMPReasonPortUnreachable) isICMP() {}
+
+// ICMPReasonProtoUnreachable means the incoming packet has a protocol field
+// that we don't recognise.
+type ICMPReasonProtoUnreachable struct{}
+
+// isICMP is a dummy method to give a signature to the types that we want
+// to make available.
+func (ICMPReasonProtoUnreachable) isICMP() {}

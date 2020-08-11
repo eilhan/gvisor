@@ -570,3 +570,100 @@ func (*protocol) ResolveStaticAddress(addr tcpip.Address) (tcpip.LinkAddress, bo
 	}
 	return tcpip.LinkAddress([]byte(nil)), false
 }
+
+// ReturnError takes a protocol independent error and will send the appropriate
+// protocol specific message to the sender of the packet supplied in pkt.
+// This may be called from transport protocols or from within the Network stack.
+// It Assumes that pkt has a network header and a transport header and that the
+// route is available. Parameter 'aux' holds an error specific value.
+func (p *protocol) ReturnError(r *stack.Route, reason tcpip.ICMPReason, pkt *stack.PacketBuffer) bool {
+	switch reason := reason.(type) {
+	case tcpip.ICMPParameterProblem:
+		return SendICMPError(r,
+			header.ICMPv6ParamProblem,
+			header.ICMPv6ErroneousHeader,
+			int(reason.Pointer()), pkt)
+	case tcpip.ICMPReasonTimeExceeded:
+		return SendICMPError(r,
+			header.ICMPv6TimeExceeded,
+			header.ICMPv6UnusedCode,
+			0, pkt)
+	case tcpip.ICMPReasonDstUnreachable:
+		return SendICMPError(r,
+			header.ICMPv6DstUnreachable,
+			header.ICMPv6UnusedCode,
+			0, pkt)
+	case tcpip.ICMPReasonPortUnreachable:
+		return SendICMPError(r,
+			header.ICMPv6DstUnreachable,
+			header.ICMPv6PortUnreachable,
+			0, pkt)
+	case tcpip.ICMPReasonProtoUnreachable:
+		return SendICMPError(r,
+			header.ICMPv6ParamProblem,
+			header.ICMPv6UnknownHeader,
+			0, pkt)
+	}
+	return false
+}
+
+// SendICMPError sends an ICMP error report back to the remote device that sent
+// the problematic packet. It will incorporate as much of that packet as
+// possible as well as any error metadata as is available.
+// SendICMPError can only be called from within code that is knowledgeable about
+// IPv6 ICMP. For Protocol agnostic code, call protocol.ReturnError above.
+func SendICMPError(r *stack.Route, eType header.ICMPv6Type, eCode header.ICMPv6Code, aux int, pkt *stack.PacketBuffer) bool {
+	// Only send ICMP error if the address is not a multicast v6
+	// address and the source is not the unspecified address.
+	//
+	// See: point e) in https://tools.ietf.org/html/rfc4443#section-2.4
+	// TODO(jrelis) There is an exception to this rule. see point e.3
+	if header.IsV6MulticastAddress(r.LocalAddress) || r.RemoteAddress == header.IPv6Any {
+		return true
+	}
+
+	if !r.Stack().AllowICMPMessage() {
+		r.Stack().Stats().ICMP.V6PacketsSent.RateLimited.Increment()
+		return true
+	}
+
+	// As per RFC 4443 section 2.4
+	//
+	//    (c) Every ICMPv6 error message (type < 128) MUST include
+	//    as much of the IPv6 offending (invoking) packet (the
+	//    packet that caused the error) as possible without making
+	//    the error message packet exceed the minimum IPv6 MTU
+	//    [IPv6].
+	mtu := int(r.MTU())
+	if mtu > header.IPv6MinimumMTU {
+		mtu = header.IPv6MinimumMTU
+	}
+	headerLen := int(r.MaxHeaderLength()) + header.ICMPv6DstUnreachableMinimumSize
+	available := int(mtu) - headerLen
+	if available < header.IPv6MinimumSize {
+		return true
+	}
+	network, transport := pkt.NetworkHeader().View(), pkt.TransportHeader().View()
+	payloadLen := pkt.NetworkHeader().View().Size() + pkt.TransportHeader().View().Size() + pkt.Data.Size()
+	if payloadLen > available {
+		payloadLen = available
+	}
+	payload := buffer.NewVectorisedView(len(network)+len(transport), []buffer.View{network, transport})
+	payload.Append(pkt.Data)
+	payload.CapLength(payloadLen)
+
+	icmpPkt := stack.NewPacketBuffer(stack.PacketBufferOptions{
+		ReserveHeaderBytes: headerLen,
+		Data:               payload,
+	})
+	icmpHdr := header.ICMPv6(icmpPkt.TransportHeader().Push(header.ICMPv6DstUnreachableMinimumSize))
+	icmpHdr.SetType(eType)
+	icmpHdr.SetCode(eCode)
+	if eType == header.ICMPv6ParamProblem {
+		icmpHdr.SetPointer(uint32(aux))
+	}
+	icmpHdr.SetChecksum(header.ICMPv6Checksum(icmpHdr, r.LocalAddress, r.RemoteAddress, icmpPkt.Data))
+	r.WritePacket(nil /* gso */, stack.NetworkHeaderParams{Protocol: header.ICMPv6ProtocolNumber, TTL: r.DefaultTTL(), TOS: stack.DefaultTOS}, icmpPkt)
+
+	return true
+}
