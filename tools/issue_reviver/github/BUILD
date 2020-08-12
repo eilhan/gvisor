@@ -15,3 +15,10 @@ go_library(
         "@org_golang_x_oauth2//:go_default_library",
     ],
 )
+
+go_test(
+    name = "github_test",
+    size = "small",
+    srcs = ["github_test.go"],
+    library = ":github",
+)
