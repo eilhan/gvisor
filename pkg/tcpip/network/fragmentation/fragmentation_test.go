@@ -38,12 +38,14 @@ type processInput struct {
 	first uint16
 	last  uint16
 	more  bool
+	proto uint8
 	vv    buffer.VectorisedView
 }
 
 type processOutput struct {
-	vv   buffer.VectorisedView
-	done bool
+	vv    buffer.VectorisedView
+	proto uint8
+	done  bool
 }
 
 var processTestCases = []struct {
@@ -60,6 +62,17 @@ var processTestCases = []struct {
 		out: []processOutput{
 			{vv: buffer.VectorisedView{}, done: false},
 			{vv: vv(4, "01", "23"), done: true},
+		},
+	},
+	{
+		comment: "Next Header protocol mismatch",
+		in: []processInput{
+			{id: FragmentID{ID: 0}, first: 0, last: 1, more: true, proto: 6, vv: vv(2, "01")},
+			{id: FragmentID{ID: 0}, first: 2, last: 3, more: false, proto: 17, vv: vv(2, "23")},
+		},
+		out: []processOutput{
+			{vv: buffer.VectorisedView{}, done: false},
+			{vv: vv(4, "01", "23"), proto: 6, done: true},
 		},
 	},
 	{
@@ -83,10 +96,11 @@ func TestFragmentationProcess(t *testing.T) {
 	for _, c := range processTestCases {
 		t.Run(c.comment, func(t *testing.T) {
 			f := NewFragmentation(minBlockSize, 1024, 512, DefaultReassembleTimeout)
+			firstFragmentProto := c.in[0].proto
 			for i, in := range c.in {
-				vv, done, err := f.Process(in.id, in.first, in.last, in.more, in.vv)
+				vv, proto, done, err := f.Process(in.id, in.first, in.last, in.more, in.proto, in.vv)
 				if err != nil {
-					t.Fatalf("f.Process(%+v, %+d, %+d, %t, %+v) failed: %v", in.id, in.first, in.last, in.more, in.vv, err)
+					t.Fatalf("f.Process(%+v, %+d, %+d, %t, %+d, %+v) failed: %v", in.id, in.first, in.last, in.more, in.proto, in.vv, err)
 				}
 				if !reflect.DeepEqual(vv, c.out[i].vv) {
 					t.Errorf("got Process(%d) = %+v, want = %+v", i, vv, c.out[i].vv)
@@ -95,6 +109,9 @@ func TestFragmentationProcess(t *testing.T) {
 					t.Errorf("got Process(%d) = %+v, want = %+v", i, done, c.out[i].done)
 				}
 				if c.out[i].done {
+					if firstFragmentProto != proto {
+						t.Errorf("Process(%d) did not return the correct initial Next Header, got %d, want %d", i, firstFragmentProto, proto)
+					}
 					if _, ok := f.reassemblers[in.id]; ok {
 						t.Errorf("Process(%d) did not remove buffer from reassemblers", i)
 					}
@@ -113,14 +130,14 @@ func TestReassemblingTimeout(t *testing.T) {
 	timeout := time.Millisecond
 	f := NewFragmentation(minBlockSize, 1024, 512, timeout)
 	// Send first fragment with id = 0, first = 0, last = 0, and more = true.
-	f.Process(FragmentID{}, 0, 0, true, vv(1, "0"))
+	f.Process(FragmentID{}, 0, 0, true, 0xFF, vv(1, "0"))
 	// Sleep more than the timeout.
 	time.Sleep(2 * timeout)
 	// Send another fragment that completes a packet.
 	// However, no packet should be reassembled because the fragment arrived after the timeout.
-	_, done, err := f.Process(FragmentID{}, 1, 1, false, vv(1, "1"))
+	_, _, done, err := f.Process(FragmentID{}, 1, 1, false, 0xFF, vv(1, "1"))
 	if err != nil {
-		t.Fatalf("f.Process(0, 1, 1, false, vv(1, \"1\")) failed: %v", err)
+		t.Fatalf("f.Process(0, 1, 1, false, 0xFF, vv(1, \"1\")) failed: %v", err)
 	}
 	if done {
 		t.Errorf("Fragmentation does not respect the reassembling timeout.")
@@ -130,15 +147,15 @@ func TestReassemblingTimeout(t *testing.T) {
 func TestMemoryLimits(t *testing.T) {
 	f := NewFragmentation(minBlockSize, 3, 1, DefaultReassembleTimeout)
 	// Send first fragment with id = 0.
-	f.Process(FragmentID{ID: 0}, 0, 0, true, vv(1, "0"))
+	f.Process(FragmentID{ID: 0}, 0, 0, true, 0xFF, vv(1, "0"))
 	// Send first fragment with id = 1.
-	f.Process(FragmentID{ID: 1}, 0, 0, true, vv(1, "1"))
+	f.Process(FragmentID{ID: 1}, 0, 0, true, 0xFF, vv(1, "1"))
 	// Send first fragment with id = 2.
-	f.Process(FragmentID{ID: 2}, 0, 0, true, vv(1, "2"))
+	f.Process(FragmentID{ID: 2}, 0, 0, true, 0xFF, vv(1, "2"))
 
 	// Send first fragment with id = 3. This should caused id = 0 and id = 1 to be
 	// evicted.
-	f.Process(FragmentID{ID: 3}, 0, 0, true, vv(1, "3"))
+	f.Process(FragmentID{ID: 3}, 0, 0, true, 0xFF, vv(1, "3"))
 
 	if _, ok := f.reassemblers[FragmentID{ID: 0}]; ok {
 		t.Errorf("Memory limits are not respected: id=0 has not been evicted.")
@@ -154,9 +171,9 @@ func TestMemoryLimits(t *testing.T) {
 func TestMemoryLimitsIgnoresDuplicates(t *testing.T) {
 	f := NewFragmentation(minBlockSize, 1, 0, DefaultReassembleTimeout)
 	// Send first fragment with id = 0.
-	f.Process(FragmentID{}, 0, 0, true, vv(1, "0"))
+	f.Process(FragmentID{}, 0, 0, true, 0xFF, vv(1, "0"))
 	// Send the same packet again.
-	f.Process(FragmentID{}, 0, 0, true, vv(1, "0"))
+	f.Process(FragmentID{}, 0, 0, true, 0xFF, vv(1, "0"))
 
 	got := f.size
 	want := 1
@@ -248,7 +265,7 @@ func TestErrors(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			f := NewFragmentation(test.blockSize, HighFragThreshold, LowFragThreshold, DefaultReassembleTimeout)
-			_, done, err := f.Process(FragmentID{}, test.first, test.last, test.more, vv(len(test.data), test.data))
+			_, _, done, err := f.Process(FragmentID{}, test.first, test.last, test.more, 0xFF, vv(len(test.data), test.data))
 			if !errors.Is(err, test.err) {
 				t.Errorf("got Proceess(_, %d, %d, %t, %q) = (_, _, %v), want = (_, _, %v)", test.first, test.last, test.more, test.data, err, test.err)
 			}

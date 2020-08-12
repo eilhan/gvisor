@@ -34,6 +34,7 @@ type reassembler struct {
 	reassemblerEntry
 	id           FragmentID
 	size         int
+	proto        uint8
 	mu           sync.Mutex
 	holes        []hole
 	deleted      int
@@ -45,6 +46,7 @@ type reassembler struct {
 func newReassembler(id FragmentID) *reassembler {
 	r := &reassembler{
 		id:           id,
+		proto:        0,
 		holes:        make([]hole, 0, 16),
 		deleted:      0,
 		heap:         make(fragHeap, 0, 8),
@@ -78,7 +80,7 @@ func (r *reassembler) updateHoles(first, last uint16, more bool) bool {
 	return used
 }
 
-func (r *reassembler) process(first, last uint16, more bool, vv buffer.VectorisedView) (buffer.VectorisedView, bool, int, error) {
+func (r *reassembler) process(first, last uint16, more bool, proto uint8, vv buffer.VectorisedView) (buffer.VectorisedView, uint8, bool, int, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	consumed := 0
@@ -86,7 +88,11 @@ func (r *reassembler) process(first, last uint16, more bool, vv buffer.Vectorise
 		// A concurrent goroutine might have already reassembled
 		// the packet and emptied the heap while this goroutine
 		// was waiting on the mutex. We don't have to do anything in this case.
-		return buffer.VectorisedView{}, false, consumed, nil
+		return buffer.VectorisedView{}, 0, false, consumed, nil
+	}
+	// Record the proto field only for the first fragment.
+	if first == 0 {
+		r.proto = proto
 	}
 	if r.updateHoles(first, last, more) {
 		// We store the incoming packet only if it filled some holes.
@@ -96,13 +102,13 @@ func (r *reassembler) process(first, last uint16, more bool, vv buffer.Vectorise
 	}
 	// Check if all the holes have been deleted and we are ready to reassamble.
 	if r.deleted < len(r.holes) {
-		return buffer.VectorisedView{}, false, consumed, nil
+		return buffer.VectorisedView{}, 0, false, consumed, nil
 	}
 	res, err := r.heap.reassemble()
 	if err != nil {
-		return buffer.VectorisedView{}, false, consumed, fmt.Errorf("fragment reassembly failed: %v", err)
+		return buffer.VectorisedView{}, 0, false, consumed, fmt.Errorf("fragment reassembly failed: %w", err)
 	}
-	return res, true, consumed, nil
+	return res, r.proto, true, consumed, nil
 }
 
 func (r *reassembler) tooOld(timeout time.Duration) bool {

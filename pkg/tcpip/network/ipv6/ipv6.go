@@ -333,9 +333,10 @@ func (e *endpoint) HandlePacket(r *stack.Route, pkt *stack.PacketBuffer) {
 			}
 
 			var ready bool
+			var proto uint8
 			// Note that pkt doesn't have its transport header set after reassembly,
 			// and won't until DeliverNetworkPacket sets it.
-			pkt.Data, ready, err = e.protocol.fragmentation.Process(
+			pkt.Data, proto, ready, err = e.protocol.fragmentation.Process(
 				// IPv6 ignores the Protocol field since the ID only needs to be unique
 				// across source-destination pairs, as per RFC 8200 section 4.5.
 				fragmentation.FragmentID{
@@ -346,6 +347,7 @@ func (e *endpoint) HandlePacket(r *stack.Route, pkt *stack.PacketBuffer) {
 				start,
 				last,
 				extHdr.More(),
+				uint8(rawPayload.Identifier),
 				rawPayload.Buf,
 			)
 			if err != nil {
@@ -357,8 +359,8 @@ func (e *endpoint) HandlePacket(r *stack.Route, pkt *stack.PacketBuffer) {
 			if ready {
 				// We create a new iterator with the reassembled packet because we could
 				// have more extension headers in the reassembled payload, as per RFC
-				// 8200 section 4.5.
-				it = header.MakeIPv6PayloadIterator(rawPayload.Identifier, pkt.Data)
+				// 8200 section 4.5. We also use the NextHeader value from the first fragment.
+				it = header.MakeIPv6PayloadIterator(header.IPv6ExtensionHeaderIdentifier(proto), pkt.Data)
 			}
 
 		case header.IPv6DestinationOptionsExtHdr:
