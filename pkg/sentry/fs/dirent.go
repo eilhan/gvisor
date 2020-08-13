@@ -239,8 +239,10 @@ func NewNegativeDirent(name string) *Dirent {
 	return newDirent(nil, name)
 }
 
-// IsRoot returns true if d is a root Dirent.
-func (d *Dirent) IsRoot() bool {
+// isRoot returns true if d is a root Dirent.
+//
+// Precondition: renameMu is held.
+func (d *Dirent) isRoot() bool {
 	return d.parent == nil
 }
 
@@ -262,10 +264,6 @@ func (d *Dirent) IsNegative() bool {
 // * d.mu must be held.
 // * child must be a root Dirent.
 func (d *Dirent) hashChild(child *Dirent) (*refs.WeakRef, bool) {
-	if !child.IsRoot() {
-		panic("hashChild must be a root Dirent")
-	}
-
 	// Assign parentage.
 	child.parent = d
 
@@ -352,12 +350,14 @@ func (d *Dirent) FullName(root *Dirent) (string, bool) {
 
 // fullName returns the fully-qualified name and a boolean value representing
 // if the root node was reachable from this Dirent.
+//
+// Precondition: renameMu is held.
 func (d *Dirent) fullName(root *Dirent) (string, bool) {
 	if d == root {
 		return "/", true
 	}
 
-	if d.IsRoot() {
+	if d.isRoot() {
 		if root != nil {
 			// We reached the top of the Dirent tree but did not encounter
 			// the given root. Return false for reachable so the caller
@@ -395,12 +395,14 @@ func (d *Dirent) MountRoot() *Dirent {
 // descendantOf returns true if the receiver dirent is equal to, or a
 // descendant of, the argument dirent.
 //
-// d.mu must be held.
+// Preconditions:
+// * renameMu must be held for reading.
+// * d.mu must be held.
 func (d *Dirent) descendantOf(p *Dirent) bool {
 	if d == p {
 		return true
 	}
-	if d.IsRoot() {
+	if d.isRoot() {
 		return false
 	}
 	return d.parent.descendantOf(p)
@@ -432,7 +434,7 @@ func (d *Dirent) walk(ctx context.Context, root *Dirent, name string, walkMayUnl
 			return d, nil
 		}
 		// Are we already at the root? Then ".." is ".".
-		if d.IsRoot() {
+		if d.isRoot() {
 			d.IncRef()
 			return d, nil
 		}
@@ -788,12 +790,14 @@ func (d *Dirent) GetDotAttrs(root *Dirent) (DentAttr, DentAttr) {
 		InodeID: sattr.InodeID,
 	}
 
-	// Hold d.mu while we call d.descendantOf.
+	// Hold renameMu and d.mu while we call d.descendantOf.
+	renameMu.Lock()
+	defer renameMu.Lock()
 	d.mu.Lock()
 	defer d.mu.Unlock()
 
 	// Get '..'.
-	if !d.IsRoot() && d.descendantOf(root) {
+	if d.descendantOf(root) {
 		// Dirent is a descendant of the root.  Get its parent's attrs.
 		psattr := d.parent.Inode.StableAttr
 		dotdot := DentAttr{
@@ -1367,13 +1371,15 @@ func (d *Dirent) MayDelete(ctx context.Context, root *Dirent, name string) error
 // mayDelete determines whether `victim`, a child of `dir`, can be deleted or
 // renamed by `ctx`.
 //
-// Preconditions: `dir` is writable and executable by `ctx`.
+// Preconditions:
+// * `dir` is writable and executable by `ctx`.
+// * renameMu must be held for reading.
 func (d *Dirent) mayDelete(ctx context.Context, victim *Dirent) error {
 	if err := d.checkSticky(ctx, victim); err != nil {
 		return err
 	}
 
-	if victim.IsRoot() {
+	if victim.isRoot() {
 		return syserror.EBUSY
 	}
 
