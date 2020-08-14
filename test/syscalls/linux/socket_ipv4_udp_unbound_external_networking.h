@@ -31,7 +31,7 @@ class IPv4UDPUnboundExternalNetworkingSocketTest : public SimpleSocketTest {
 
   // got_if_infos_ is set to false if SetUp() could not obtain all interface
   // infos that we need.
-  bool got_if_infos_;
+  bool found_net_interfaces_;
 
   // Interface infos.
   int lo_if_idx_;
